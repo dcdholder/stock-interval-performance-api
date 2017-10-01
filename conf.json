@@ -1,8 +1,8 @@
 {
   "alphavantageAddress":             "https://www.alphavantage.co",
-  "alphavantageTimeFunction":        "TIME_SERIES_DAILY",
-  "alphavantageJsonTimeType":        "Time Series (Daily)",
+  "alphavantageTimeFunction":        "TIME_SERIES_WEEKLY",
+  "alphavantageJsonTimeType":        "Weekly Time Series",
   "alphavantageJsonPriceType":       "4. close",
-  "alphavantageFullOrPartialOption": "&outputsize=full",
+  "alphavantageFullOrPartialOption": "",
   "tickerSymbol":                    "GOOGL"
 }
