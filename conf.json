@@ -4,5 +4,6 @@
   "alphavantageJsonTimeType":        "Weekly Time Series",
   "alphavantageJsonPriceType":       "4. close",
   "alphavantageFullOrPartialOption": "",
-  "tickerSymbol":                    "GOOGL"
+  "tickerSymbol":                    "GOOGL",
+  "filenamePrefix":                  ""
 }

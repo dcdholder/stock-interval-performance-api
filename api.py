@@ -11,8 +11,9 @@ class StockIntervalResource(Resource):
         with open("conf.json") as data_file:
             conf = json.load(data_file)
 
-        dataFilenameSuffix    = '-' + tickerSymbol + '-' + conf["alphavantageTimeFunction"] + '.json'
-        intervalDataFilename  = 'intervalData'  + dataFilenameSuffix
+        dataFilenamePrefix   = conf['filenamePrefix']
+        dataFilenameSuffix   = '-' + tickerSymbol + '-' + conf["alphavantageTimeFunction"] + '.json'
+        intervalDataFilename = dataFilenamePrefix + 'intervalData'  + dataFilenameSuffix
 
         with open(intervalDataFilename) as stockIntervalDataFile:
             return json.dumps(json.load(stockIntervalDataFile))

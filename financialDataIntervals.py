@@ -12,10 +12,11 @@ def refreshFinancialData():
         tickerSymbols = json.load(data_file)
 
     for tickerSymbol in tickerSymbols:
+        dataFilenamePrefix = conf['filenamePrefix']
         dataFilenameSuffix = '-' + tickerSymbol + '-' + conf["alphavantageTimeFunction"] + '.json'
 
-        financialDataFilename = 'financialData' + dataFilenameSuffix
-        intervalDataFilename  = 'intervalData'  + dataFilenameSuffix
+        financialDataFilename = dataFilenamePrefix + 'financialData' + dataFilenameSuffix
+        intervalDataFilename  = dataFilenamePrefix + 'intervalData'  + dataFilenameSuffix
 
         #only call the alphavantage API for financial data if we haven't called it before
         try:
