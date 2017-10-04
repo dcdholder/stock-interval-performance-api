@@ -1,3 +1,5 @@
+import financialDataIntervals
+
 from flask import Flask
 from flask_restful import Resource, Api
 
@@ -15,9 +17,7 @@ class StockIntervalPublicResource(Resource):
             tickerSymbols = json.load(data_file)
 
         if tickerSymbol in tickerSymbols:
-            dataFilenamePrefix   = conf['filenamePrefix']
-            dataFilenameSuffix   = '-' + tickerSymbol + '-' + conf["alphavantageTimeFunction"] + '.json'
-            intervalDataFilename = dataFilenamePrefix + 'intervalData'  + dataFilenameSuffix
+            intervalDataFilename = financialDataIntervals.stockDataFilename('intervals',tickerSymbol)
 
             try:
                 with open(intervalDataFilename) as stockIntervalDataFile:

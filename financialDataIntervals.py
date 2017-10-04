@@ -4,6 +4,12 @@ import requests
 from datetime import datetime
 import operator
 
+def stockDataFilename(dataType,tickerSymbol):
+    with open("conf.json") as data_file:
+        conf = json.load(data_file)
+
+    return conf["filenamePrefix"] + dataType + '-' + tickerSymbol + '-' + conf["alphavantageTimeFunction"] + '.json'
+
 def refreshFinancialData():
     with open("conf.json") as data_file:
         conf = json.load(data_file)
@@ -12,11 +18,8 @@ def refreshFinancialData():
         tickerSymbols = json.load(data_file)
 
     for tickerSymbol in tickerSymbols:
-        dataFilenamePrefix = conf['filenamePrefix']
-        dataFilenameSuffix = '-' + tickerSymbol + '-' + conf["alphavantageTimeFunction"] + '.json'
-
-        financialDataFilename = dataFilenamePrefix + 'financialData' + dataFilenameSuffix
-        intervalDataFilename  = dataFilenamePrefix + 'intervalData'  + dataFilenameSuffix
+        financialDataFilename = stockDataFilename('raw',tickerSymbol)
+        intervalDataFilename  = stockDataFilename('intervals',tickerSymbol)
 
         #only call the alphavantage API for financial data if we haven't called it before
         try:
@@ -28,8 +31,8 @@ def refreshFinancialData():
                 credentials = json.load(data_file)
 
             financialDataRequestUri = conf["alphavantageAddress"] + "/query?function=" +  \
-                                      conf["alphavantageTimeFunction"] + "&symbol=" + conf["tickerSymbol"] + \
-                                      "&datatype=json&apikey=" + credentials["apiKey"] + conf["alphavantageFullOrPartialOption"]
+                                      conf["alphavantageTimeFunction"] + "&symbol=" + tickerSymbol + \
+                                      "&datatype=json&apikey=" + credentials["apiKey"] + "&outputsize=" + conf["alphavantageCompactOrFull"]
 
             financialDataRequest = requests.get(financialDataRequestUri)
             financialData        = financialDataRequest.json()
@@ -109,4 +112,4 @@ def refreshFinancialData():
         with open(intervalDataFilename, 'w') as data_file:
             json.dump(intervalMetrics,data_file)
 
-        #print(intervalMetrics)
+        return
