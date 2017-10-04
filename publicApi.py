@@ -17,11 +17,8 @@ class StockIntervalPublicResource(Resource):
             tickerSymbols = json.load(data_file)
 
         if tickerSymbol in tickerSymbols:
-            intervalDataFilename = financialDataIntervals.stockDataFilename('intervals',tickerSymbol)
-
             try:
-                with open(intervalDataFilename) as stockIntervalDataFile:
-                    return json.load(stockIntervalDataFile), 200
+                return financialDataIntervals.getExistingIntervalData(tickerSymbol)
             except IOError:
                 return tickerSymbol + ' data is listed as available, but could not be found.', 404
         else:

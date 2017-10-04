@@ -1,3 +1,7 @@
+import os
+import lib.cloudstorage as gcs
+from lib.google.appengine.api import app_identity
+
 import json
 import requests
 
@@ -5,47 +9,86 @@ from datetime import datetime
 import operator
 
 def stockDataFilename(dataType,tickerSymbol):
-    with open("conf.json") as data_file:
-        conf = json.load(data_file)
+    with open("conf.json") as configurationFile:
+        conf = json.load(configurationFile)
 
-    return conf["filenamePrefix"] + dataType + '-' + tickerSymbol + '-' + conf["alphavantageTimeFunction"] + '.json'
+    return conf["filenamePrefix"] + dataType + '-' + tickerSymbol + '-' + conf["alphavantageCompactOrFull"] + '-' + conf["alphavantageTimeFunction"] + '.json'
 
-def refreshFinancialData():
-    with open("conf.json") as data_file:
-        conf = json.load(data_file)
+def getExistingIntervalData(tickerSymbol):
+    with open("env.json") as environmentFile:
+        env = json.load(environmentFile)["env"]
 
-    with open("tickerSymbols.json") as data_file:
-        tickerSymbols = json.load(data_file)
+    intervalDataFilename = stockDataFilename('intervals',tickerSymbol)
+
+    if env=='local':
+        with open(intervalDataFilename) as intervalDataFile:
+            return json.load(intervalDataFile)
+    elif env=='gcp':
+        os.environ.get('BUCKET_NAME',app_identity.get_default_gcs_bucket_name())
+
+        intervalDataFile = gcs.open(intervalDataFilename)
+        intervalData     = json.load(intervalDataFile)
+
+        intervalDataFile.close()
+
+        return intervalData
+
+def refreshrawData():
+    with open("env.json") as environmentFile:
+        env = json.load(environmentFile)["env"]
+
+    with open("conf.json") as configurationFile:
+        conf = json.load(configurationFile)
+
+    with open("tickerSymbols.json") as tickerSymbolsFile:
+        tickerSymbols = json.load(tickerSymbolsFile)
 
     for tickerSymbol in tickerSymbols:
-        financialDataFilename = stockDataFilename('raw',tickerSymbol)
+        rawDataFilename = stockDataFilename('raw',tickerSymbol)
         intervalDataFilename  = stockDataFilename('intervals',tickerSymbol)
 
         #only call the alphavantage API for financial data if we haven't called it before
         try:
-            with open(financialDataFilename) as data_file:
-                financialData = json.load(data_file)
+            if env=='local':
+                with open(rawDataFilename) as rawDataFile:
+                    rawData = json.load(rawDataFile)
+            elif env=='gcp':
+                os.environ.get('BUCKET_NAME',app_identity.get_default_gcs_bucket_name())
+
+                rawDataFile = gcs.open(rawDataFilename)
+                rawData     = json.load(rawDataFile)
+
+                rawDataFile.close()
 
         except IOError:
-            with open("credentials.json") as data_file:
-                credentials = json.load(data_file)
+            with open("credentials.json") as credentialsFile:
+                credentials = json.load(credentialsFile)
 
-            financialDataRequestUri = conf["alphavantageAddress"] + "/query?function=" +  \
+            rawDataRequestUri = conf["alphavantageAddress"] + "/query?function=" +  \
                                       conf["alphavantageTimeFunction"] + "&symbol=" + tickerSymbol + \
                                       "&datatype=json&apikey=" + credentials["apiKey"] + "&outputsize=" + conf["alphavantageCompactOrFull"]
 
-            financialDataRequest = requests.get(financialDataRequestUri)
-            financialData        = financialDataRequest.json()
+            rawDataRequest = requests.get(rawDataRequestUri)
+            rawData        = rawDataRequest.json()
 
-            with open(financialDataFilename, 'w') as data_file:
-                json.dump(financialData, data_file)
+            if env=='local':
+                with open(rawDataFilename, 'w') as rawDataFile:
+                    json.dump(rawData, rawDataFile)
+            elif env=='gcp':
+                os.environ.get('BUCKET_NAME',app_identity.get_default_gcs_bucket_name())
+
+                rawDataFile = gcs.open(rawDataFilename,'w')
+
+                json.dump(rawData, rawDataFile)
+
+                rawDataFile.close()
 
         #digest the Alphavantage JSON format into an array of date/price hashes
         dateFormat = "%Y-%m-%d"
         fixedDate  = datetime(1970,1,1)
 
         datesAndPrices = []
-        for date,priceDict in financialData[conf["alphavantageJsonTimeType"]].items():
+        for date,priceDict in rawData[conf["alphavantageJsonTimeType"]].items():
             dateAndPrice = {}
 
             dateAndPrice["date"]               = date
@@ -109,7 +152,16 @@ def refreshFinancialData():
             intervalMetrics[intervalLength]["worst"] = priceDeltaPercentageList[0]
             intervalMetrics[intervalLength]["best"]  = priceDeltaPercentageList[len(priceDeltaPercentageList)-1]
 
-        with open(intervalDataFilename, 'w') as data_file:
-            json.dump(intervalMetrics,data_file)
+        if env=="local":
+            with open(intervalDataFilename, 'w') as intervalDataFile:
+                json.dump(intervalMetrics,intervalDataFile)
+        elif env=="gcp":
+            os.environ.get('BUCKET_NAME',app_identity.get_default_gcs_bucket_name())
+
+            intervalDataFile = gcs.open(intervalDataFilename,'w')
+
+            json.dump(intervalMetrics, intervalDataFilename)
+
+            rawDataFile.close()
 
         return
