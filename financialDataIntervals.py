@@ -38,11 +38,17 @@ def refreshFinancialData():
                 json.dump(financialData, data_file)
 
         #digest the Alphavantage JSON format into an array of date/price hashes
+        dateFormat = "%Y-%m-%d"
+        fixedDate  = datetime(1970,1,1)
+
         datesAndPrices = []
         for date,priceDict in financialData[conf["alphavantageJsonTimeType"]].items():
             dateAndPrice = {}
-            dateAndPrice["date"]  = date
-            dateAndPrice["price"] = priceDict[conf["alphavantageJsonPriceType"]]
+
+            dateAndPrice["date"]               = date
+            dateAndPrice["daysSinceFixedDate"] = (datetime.strptime(date, dateFormat)-fixedDate).days
+            dateAndPrice["price"]              = priceDict[conf["alphavantageJsonPriceType"]]
+
             datesAndPrices.append(dateAndPrice)
 
         #iterate over all possible pairs of the above date/price dicts to generate time interval dicts
@@ -56,26 +62,24 @@ def refreshFinancialData():
                     startDict = datesAndPrices[i]
                     endDict   = datesAndPrices[j]
 
-                    intervalDatePriceDict["startDate"]  = startDict["date"]
-                    intervalDatePriceDict["endDate"]    = endDict["date"]
+                    intervalDatePriceDict["startDate"] = startDict["date"]
+                    intervalDatePriceDict["endDate"]   = endDict["date"]
+
+                    intervalDatePriceDict["startDaysSinceFixedDate"] = startDict["daysSinceFixedDate"]
+                    intervalDatePriceDict["endDaysSinceFixedDate"]   = endDict["daysSinceFixedDate"]
+
                     intervalDatePriceDict["startPrice"] = startDict["price"]
                     intervalDatePriceDict["endPrice"]   = endDict["price"]
 
                     intervalDatePriceDicts.append(intervalDatePriceDict)
 
         #now we create a dict keyed by interval length
-        dateFormat = "%Y-%m-%d"
-
         datePriceDictsByIntervalLength = {}
         for invervalDatePriceDict in intervalDatePriceDicts:
             endDate   = datetime.strptime(invervalDatePriceDict["endDate"], dateFormat)
             startDate = datetime.strptime(invervalDatePriceDict["startDate"], dateFormat)
 
-            intervalLength = (endDate-startDate).days
-
-            #if intervalLength==3109:
-            #    print(startDate)
-            #    print(endDate)
+            intervalLength = invervalDatePriceDict["endDaysSinceFixedDate"]-invervalDatePriceDict["startDaysSinceFixedDate"]
 
             if not intervalLength in datePriceDictsByIntervalLength:
                 datePriceDictsByIntervalLength[intervalLength] = []
