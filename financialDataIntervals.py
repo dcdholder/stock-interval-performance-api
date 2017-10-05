@@ -1,4 +1,4 @@
-from google.cloud import storage
+from google.cloud import storage, exceptions
 
 import json
 import requests
@@ -9,12 +9,12 @@ import operator
 with open("env.json") as environmentFile:
     env = json.load(environmentFile)["env"]
 
-if env=='gcp':
-    client = storage.Client()
-    bucket = client.get_bucket(conf['bucketName'])
-
 with open("conf.json") as configurationFile:
     conf = json.load(configurationFile)
+
+if env=='gcp':
+    client = storage.Client()
+    bucket = client.get_bucket(env['gcp']['bucketName'])
 
 def stockDataFilename(dataType,tickerSymbol):
     return conf["filenamePrefix"] + dataType + '-' + tickerSymbol + '-' + conf["alphavantageCompactOrFull"] + '-' + conf["alphavantageTimeFunction"] + '.json'
@@ -28,7 +28,7 @@ def getExistingIntervalData(tickerSymbol):
     elif env=='gcp':
         intervalDataBlob = storage.Blob(intervalDataFilename, bucket)
 
-        return json.loads(intervalDataBlob.download_as_string())
+        return json.loads(intervalDataBlob.download_as_string().decode("utf-8"))
 
 def refreshRawData():
     with open("tickerSymbols.json") as tickerSymbolsFile:
@@ -46,9 +46,9 @@ def refreshRawData():
             elif env=='gcp':
                 rawDataBlob = storage.Blob(rawDataFilename, bucket)
 
-                return json.loads(rawDataBlob.download_as_string())
+                return json.loads(rawDataBlob.download_as_string().decode("utf-8"))
 
-        except IOError:
+        except (IOError, exceptions.NotFound):
             with open("credentials.json") as credentialsFile:
                 credentials = json.load(credentialsFile)
 
@@ -64,7 +64,7 @@ def refreshRawData():
                     json.dump(rawData, rawDataFile)
             elif env=='gcp':
                 rawDataBlob = storage.Blob(rawDataFilename, bucket)
-                rawDataBlob.upload_from_string(json.dumps(rawData))
+                rawDataBlob.upload_from_string(json.dumps(rawData),content_type='text/json')
 
         #digest the Alphavantage JSON format into an array of date/price hashes
         dateFormat = "%Y-%m-%d"
@@ -140,4 +140,4 @@ def refreshRawData():
                 json.dump(intervalMetrics,intervalDataFile)
         elif env=="gcp":
             intervalDataBlob = storage.Blob(intervalDataFilename, bucket)
-            intervalDataBlob.upload_from_string(json.dumps(intervalData))
+            intervalDataBlob.upload_from_string(json.dumps(intervalMetrics),content_type='text/json')
