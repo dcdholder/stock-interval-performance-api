@@ -4,6 +4,5 @@
   "alphavantageJsonTimeType":  "Time Series (Daily)",
   "alphavantageJsonPriceType": "4. close",
   "alphavantageCompactOrFull": "compact",
-  "filenamePrefix":            "",
   "bucketName":                "stock-interval-data"
 }

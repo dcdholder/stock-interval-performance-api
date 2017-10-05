@@ -10,7 +10,7 @@ api = Api(app)
 
 class StockIntervalPrivateResource(Resource):
     def get(self):
-        financialDataIntervals.refreshRawData()
+        financialDataIntervals.refreshIntervalData()
 
         return 'Performed a full refresh on all stock data.', 204
 
