@@ -1,6 +1,4 @@
-import os
-import lib.cloudstorage as gcs
-from lib.google.appengine.api import app_identity
+from google.cloud import storage
 
 import json
 import requests
@@ -8,38 +6,31 @@ import requests
 from datetime import datetime
 import operator
 
-def stockDataFilename(dataType,tickerSymbol):
-    with open("conf.json") as configurationFile:
-        conf = json.load(configurationFile)
+with open("env.json") as environmentFile:
+    env = json.load(environmentFile)["env"]
 
+if env=='gcp':
+    client = storage.Client()
+    bucket = client.get_bucket(conf['bucketName'])
+
+with open("conf.json") as configurationFile:
+    conf = json.load(configurationFile)
+
+def stockDataFilename(dataType,tickerSymbol):
     return conf["filenamePrefix"] + dataType + '-' + tickerSymbol + '-' + conf["alphavantageCompactOrFull"] + '-' + conf["alphavantageTimeFunction"] + '.json'
 
 def getExistingIntervalData(tickerSymbol):
-    with open("env.json") as environmentFile:
-        env = json.load(environmentFile)["env"]
-
     intervalDataFilename = stockDataFilename('intervals',tickerSymbol)
 
     if env=='local':
         with open(intervalDataFilename) as intervalDataFile:
             return json.load(intervalDataFile)
     elif env=='gcp':
-        os.environ.get('BUCKET_NAME',app_identity.get_default_gcs_bucket_name())
+        intervalDataBlob = storage.Blob(intervalDataFilename, bucket)
 
-        intervalDataFile = gcs.open(intervalDataFilename)
-        intervalData     = json.load(intervalDataFile)
+        return json.loads(intervalDataBlob.download_as_string())
 
-        intervalDataFile.close()
-
-        return intervalData
-
-def refreshrawData():
-    with open("env.json") as environmentFile:
-        env = json.load(environmentFile)["env"]
-
-    with open("conf.json") as configurationFile:
-        conf = json.load(configurationFile)
-
+def refreshRawData():
     with open("tickerSymbols.json") as tickerSymbolsFile:
         tickerSymbols = json.load(tickerSymbolsFile)
 
@@ -53,12 +44,9 @@ def refreshrawData():
                 with open(rawDataFilename) as rawDataFile:
                     rawData = json.load(rawDataFile)
             elif env=='gcp':
-                os.environ.get('BUCKET_NAME',app_identity.get_default_gcs_bucket_name())
+                rawDataBlob = storage.Blob(rawDataFilename, bucket)
 
-                rawDataFile = gcs.open(rawDataFilename)
-                rawData     = json.load(rawDataFile)
-
-                rawDataFile.close()
+                return json.loads(rawDataBlob.download_as_string())
 
         except IOError:
             with open("credentials.json") as credentialsFile:
@@ -75,13 +63,8 @@ def refreshrawData():
                 with open(rawDataFilename, 'w') as rawDataFile:
                     json.dump(rawData, rawDataFile)
             elif env=='gcp':
-                os.environ.get('BUCKET_NAME',app_identity.get_default_gcs_bucket_name())
-
-                rawDataFile = gcs.open(rawDataFilename,'w')
-
-                json.dump(rawData, rawDataFile)
-
-                rawDataFile.close()
+                rawDataBlob = storage.Blob(rawDataFilename, bucket)
+                rawDataBlob.upload_from_string(json.dumps(rawData))
 
         #digest the Alphavantage JSON format into an array of date/price hashes
         dateFormat = "%Y-%m-%d"
@@ -156,12 +139,5 @@ def refreshrawData():
             with open(intervalDataFilename, 'w') as intervalDataFile:
                 json.dump(intervalMetrics,intervalDataFile)
         elif env=="gcp":
-            os.environ.get('BUCKET_NAME',app_identity.get_default_gcs_bucket_name())
-
-            intervalDataFile = gcs.open(intervalDataFilename,'w')
-
-            json.dump(intervalMetrics, intervalDataFilename)
-
-            rawDataFile.close()
-
-        return
+            intervalDataBlob = storage.Blob(intervalDataFilename, bucket)
+            intervalDataBlob.upload_from_string(json.dumps(intervalData))
