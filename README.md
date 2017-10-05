@@ -7,3 +7,7 @@ This API will allow you to see the variance in stock performance over smaller ti
 ## Usage
 
 Choose a date interval, maximum interval length and time resolution, then specify the performance percentiles you're looking for.
+
+## Plans
+
+Create a mechanism to create some data on-the-fly and generate other data statically.
