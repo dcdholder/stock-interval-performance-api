@@ -54,8 +54,11 @@ def resolveToDateRange(startDateString,endDateString):
 def resolveToAvailableDateRange(rawData,startDateString,endDateString):
     [initialStartDateString,initialEndDateString] = resolveToDateRange(startDateString,endDateString)
 
-    earliestDateStringAtOrAfterStartDate = "9999-99-99"
-    latestDateStringBeforeOrAtEndDate    = "0000-00-00"
+    initialEarliestDateString = "9999-99-99"
+    initialLatestDateString   = "0000-00-00"
+
+    earliestDateStringAtOrAfterStartDate = initialEarliestDateString
+    latestDateStringBeforeOrAtEndDate    = initialLatestDateString
 
     for dateString in rawData[conf["alphavantageJsonTimeType"]]:
         if dateString<earliestDateStringAtOrAfterStartDate and dateString>=initialStartDateString:
@@ -63,7 +66,12 @@ def resolveToAvailableDateRange(rawData,startDateString,endDateString):
         if dateString>latestDateStringBeforeOrAtEndDate and dateString<=initialEndDateString:
             latestDateStringBeforeOrAtEndDate = dateString
 
-    return [earliestDateStringAtOrAfterStartDate,latestDateStringBeforeOrAtEndDate]
+    if earliestDateStringAtOrAfterStartDate==initialEarliestDateString:
+        raise ValueError("Could not resolve start date " + initialStartDateString + " to an available date (initial input " + startDateString + ").")
+    elif latestDateStringBeforeOrAtEndDate==initialLatestDateString:
+        raise ValueError("Could not resolve end date " + initialEndDateString + " to an available date (initial input " + endDateString + ").")
+    else:
+        return [earliestDateStringAtOrAfterStartDate,latestDateStringBeforeOrAtEndDate]
 
 def getIntervalDataFromDateRange(tickerSymbol,startDateString,endDateString):
     rawData = rawDataFromTickerSymbol(tickerSymbol)
@@ -75,7 +83,7 @@ def getIntervalDataFromDateRange(tickerSymbol,startDateString,endDateString):
 
     dateRangeInDays = (datetime.strptime(resolvedEndDateString, dateFormat)-datetime.strptime(resolvedStartDateString, dateFormat)).days
 
-    if dateRangeInDays<conf['maxDynamicGenerationDateRange']:
+    if dateRangeInDays<int(conf['maxDynamicGenerationDateRange']):
         try:
             return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString)
         except:
@@ -152,13 +160,14 @@ def getAllYearsFromRawData(rawData):
 def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData):
     months = []
     for month in range(1,12+1):
-        month = str(month)
-        if month<str(10):
-            month = "0" + month
+        if month<10:
+            month = "0" + str(month)
+        else:
+            month = str(month)
 
         months.append(month)
 
-    years = getAllYearsFromRawData():
+    years = getAllYearsFromRawData(rawData)
 
     for startYear in years:
         for startMonth in months:
@@ -166,19 +175,23 @@ def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData):
 
             for endYear in years:
                 for endMonth in months:
-                    if endYear>startYear and endMonth>startMonth:
+                    if endYear>=startYear and endMonth>=startMonth:
                         endDateString = endYear + '-' + endMonth
 
-                        [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(startDateString,endDateString)
-                        generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
+                        #try/except is necessary because some end dates will be generated which are prior to the earliest dates in the raw data
+                        try:
+                            [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(rawData,startDateString,endDateString)
+                            generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
+                        except:
+                            pass
 
 def generateIntervalDataFileFromRawDataYearlyGranularity(rawData):
     years = getAllYearsFromRawData(rawData)
 
     for startYear in years:
         for endYear in years:
-            if endYear>startYear:
-                [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(startYear,endYear)
+            if endYear>=startYear:
+                [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(rawData,startYear,endYear)
                 generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
 
 def generateIntervalDataFileFromRawDataAndDateRange(rawData,startDateString,endDateString):
