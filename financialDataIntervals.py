@@ -24,11 +24,72 @@ def getIntervalDataFilename(tickerSymbol,startDateString,endDateString):
 def getRawDataFilename(tickerSymbol):
     return 'raw-' + tickerSymbol + '-' + conf["alphavantageCompactOrFull"] + '-' + conf["alphavantageTimeFunction"] + '.json'
 
-def resolveToDateRange(startDateString,endDateString,timeGranularity):
-    pass
+def resolveToDateRange(startDateString,endDateString):
+    dailyGranularityRegex   = re.compile("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+    monthlyGranularityRegex = re.compile("^[0-9]{4}-[0-9]{2}$")
+    yearlyGranularityRegex  = re.compile("^[0-9]{4}$")
 
-def getExistingIntervalData(tickerSymbol):
-    intervalDataFilename = getIntervalDataFilename(tickerSymbol,"","")
+    for granularityRegex in [dailyGranularityRegex,monthlyGranularityRegex,yearlyGranularityRegex]:
+        granularityMatchStartDate = granularityRegex.match(startDateString)
+        granularityMatchEndDate   = granularityRegex.match(endDateString)
+
+        if granularityMatchStartDate!=None and granularityMatchEndDate==None:
+            raise ValueError("Invalid format for start date, or attempted start/end date format mixing.")
+        elif granularityMatchStartDate==None and granularityMatchEndDate!=None:
+            raise ValueError("Invalid format for end date, or attempted start/end date format mixing.")
+        elif granularityMatchStartDate!=None and granularityMatchEndDate!=None:
+            matchingIdentifierStartDate = granularityMatchStartDate.group(0)
+            matchingIdentifierEndDate   = granularityMatchEndDate.group(0)
+
+            if granularityRegex==dailyGranularityRegex:
+                return [matchingIdentifierStartDate, matchingIdentifierEndDate]
+            elif granularityRegex==monthlyGranularityRegex:
+                return [matchingIdentifierStartDate + '-01', matchingIdentifierEndDate + '-31']
+            elif granularityRegex==yearlyGranularityRegex:
+                return [matchingIdentifierStartDate + '-01-01', matchingIdentifierEndDate + '-12-31']
+
+    raise ValueError("Invalid format for start date and end date.")
+
+#some dates are not available in the raw data -- this is reflected in the interval data filenames
+def resolveToAvailableDateRange(rawData,startDateString,endDateString):
+    [initialStartDateString,initialEndDateString] = resolveToDateRange(startDateString,endDateString)
+
+    earliestDateStringAtOrAfterStartDate = "9999-99-99"
+    latestDateStringBeforeOrAtEndDate    = "0000-00-00"
+
+    for dateString in rawData[conf["alphavantageJsonTimeType"]]:
+        if dateString<earliestDateStringAtOrAfterStartDate and dateString>=initialStartDateString:
+            earliestDateStringAtOrAfterStartDate = dateString
+        if dateString>latestDateStringBeforeOrAtEndDate and dateString<=initialEndDateString:
+            latestDateStringBeforeOrAtEndDate = dateString
+
+    return [earliestDateStringAtOrAfterStartDate,latestDateStringBeforeOrAtEndDate]
+
+def getIntervalDataFromDateRange(tickerSymbol,startDateString,endDateString):
+    rawData = rawDataFromTickerSymbol(tickerSymbol)
+
+    [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(rawData,startDateString,endDateString)
+
+    dateFormat = "%Y-%m-%d"
+    fixedDate  = datetime(1970,1,1)
+
+    dateRangeInDays = (datetime.strptime(resolvedEndDateString, dateFormat)-datetime.strptime(resolvedStartDateString, dateFormat)).days
+
+    if dateRangeInDays<conf['maxDynamicGenerationDateRange']:
+        try:
+            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString)
+        except:
+            generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
+
+            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString)
+    else:
+        try:
+            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString)
+        except:
+            raise ValueError("Could not find statically-generated interval data for the specified time range.")
+
+def getExistingIntervalData(tickerSymbol,startDateString,endDateString):
+    intervalDataFilename = getIntervalDataFilename(tickerSymbol,startDateString,endDateString)
 
     if env["env"]=='local':
         with open(intervalDataFilename) as intervalDataFile:
@@ -38,70 +99,87 @@ def getExistingIntervalData(tickerSymbol):
 
         return json.loads(intervalDataBlob.download_as_string().decode("utf-8"))
 
+def rawDataFromTickerSymbol(tickerSymbol):
+    rawDataFilename = getRawDataFilename(tickerSymbol)
+
+    #only call the alphavantage API for financial data if we haven't called it before
+    try:
+        if env["env"]=='local':
+            with open(rawDataFilename) as rawDataFile:
+                rawData = json.load(rawDataFile)
+        elif env["env"]=='gcp':
+            rawDataBlob = storage.Blob(rawDataFilename, bucket)
+
+            rawData = json.loads(rawDataBlob.download_as_string().decode("utf-8"))
+
+    except (IOError, exceptions.NotFound):
+        with open("credentials.json") as credentialsFile:
+            credentials = json.load(credentialsFile)
+
+        rawDataRequestUri = conf["alphavantageAddress"] + "/query?function=" +  \
+                                  conf["alphavantageTimeFunction"] + "&symbol=" + tickerSymbol + \
+                                  "&datatype=json&apikey=" + credentials["apiKey"] + "&outputsize=" + conf["alphavantageCompactOrFull"]
+
+        rawDataRequest = requests.get(rawDataRequestUri)
+        rawData        = rawDataRequest.json()
+
+        if env["env"]=='local':
+            with open(rawDataFilename, 'w') as rawDataFile:
+                json.dump(rawData, rawDataFile)
+        elif env["env"]=='gcp':
+            rawDataBlob = storage.Blob(rawDataFilename, bucket)
+            rawDataBlob.upload_from_string(json.dumps(rawData),content_type='text/json')
+
+    return rawData
+
 def refreshIntervalData():
     with open("tickerSymbols.json") as tickerSymbolsFile:
         tickerSymbols = json.load(tickerSymbolsFile)
 
     for tickerSymbol in tickerSymbols:
-        rawDataFilename = getRawDataFilename(tickerSymbol)
-
-        #only call the alphavantage API for financial data if we haven't called it before
-        try:
-            if env["env"]=='local':
-                with open(rawDataFilename) as rawDataFile:
-                    rawData = json.load(rawDataFile)
-            elif env["env"]=='gcp':
-                rawDataBlob = storage.Blob(rawDataFilename, bucket)
-
-                rawData = json.loads(rawDataBlob.download_as_string().decode("utf-8"))
-
-        except (IOError, exceptions.NotFound):
-            with open("credentials.json") as credentialsFile:
-                credentials = json.load(credentialsFile)
-
-            rawDataRequestUri = conf["alphavantageAddress"] + "/query?function=" +  \
-                                      conf["alphavantageTimeFunction"] + "&symbol=" + tickerSymbol + \
-                                      "&datatype=json&apikey=" + credentials["apiKey"] + "&outputsize=" + conf["alphavantageCompactOrFull"]
-
-            rawDataRequest = requests.get(rawDataRequestUri)
-            rawData        = rawDataRequest.json()
-
-            if env["env"]=='local':
-                with open(rawDataFilename, 'w') as rawDataFile:
-                    json.dump(rawData, rawDataFile)
-            elif env["env"]=='gcp':
-                rawDataBlob = storage.Blob(rawDataFilename, bucket)
-                rawDataBlob.upload_from_string(json.dumps(rawData),content_type='text/json')
+        rawData = rawDataFromTickerSymbol(tickerSymbol)
 
         generateIntervalDataFileFromRawDataMonthlyGranularity(rawData)
 
-def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData):
-    earliestAndLatestDaysByMonth = {}
+def getAllYearsFromRawData(rawData):
+    years = set()
     for dateString in rawData[conf["alphavantageJsonTimeType"]]:
-        monthMatch      = re.search('([0-9]{4}-[0-9]{2})-([0-9]{2})',dateString)
-        monthIdentifier = monthMatch.group(1)
-        dayIdentifier   = monthMatch.group(2)
+        yearMatch = re.search('([0-9]{4})-[0-9]{2}-[0-9]{2}',dateString)
+        years.add(yearMatch.group(1))
 
-        if monthIdentifier not in earliestAndLatestDaysByMonth.keys():
-            earliestAndLatestDaysByMonth[monthIdentifier] = {}
-            earliestAndLatestDaysByMonth[monthIdentifier]["earliestDayInMonth"] = "32" #higher than highest possible
-            earliestAndLatestDaysByMonth[monthIdentifier]["latestDayInMonth"]   = "00" #lower than lowest possible
+    return years
 
-        if dayIdentifier<earliestAndLatestDaysByMonth[monthIdentifier]["earliestDayInMonth"]:
-            earliestAndLatestDaysByMonth[monthIdentifier]["earliestDayInMonth"] = dayIdentifier
+def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData):
+    months = []
+    for month in range(1,12+1):
+        month = str(month)
+        if month<str(10):
+            month = "0" + month
 
-        if dayIdentifier>earliestAndLatestDaysByMonth[monthIdentifier]["latestDayInMonth"]:
-            earliestAndLatestDaysByMonth[monthIdentifier]["latestDayInMonth"] = dayIdentifier
+        months.append(month)
 
-    #generate interval data for each possible pair of months, starting from the earliest day in the first and ending at the latest day in the last
-    #also generate data for individual months
-    for startMonthIdentifier in earliestAndLatestDaysByMonth:
-        earliestDateString = startMonthIdentifier + '-' + earliestAndLatestDaysByMonth[startMonthIdentifier]["earliestDayInMonth"]
-        for endMonthIdentifier in earliestAndLatestDaysByMonth:
-            if endMonthIdentifier>=startMonthIdentifier:
-                latestDateString = endMonthIdentifier + '-' + earliestAndLatestDaysByMonth[startMonthIdentifier]["latestDayInMonth"]
+    years = getAllYearsFromRawData():
 
-                generateIntervalDataFileFromRawDataAndDateRange(rawData,earliestDateString,latestDateString)
+    for startYear in years:
+        for startMonth in months:
+            startDateString = startYear + '-' + startMonth
+
+            for endYear in years:
+                for endMonth in months:
+                    if endYear>startYear and endMonth>startMonth:
+                        endDateString = endYear + '-' + endMonth
+
+                        [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(startDateString,endDateString)
+                        generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
+
+def generateIntervalDataFileFromRawDataYearlyGranularity(rawData):
+    years = getAllYearsFromRawData(rawData)
+
+    for startYear in years:
+        for endYear in years:
+            if endYear>startYear:
+                [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(startYear,endYear)
+                generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
 
 def generateIntervalDataFileFromRawDataAndDateRange(rawData,startDateString,endDateString):
     intervalDataFilename = getIntervalDataFilename(rawData["Meta Data"]["2. Symbol"],startDateString,endDateString)
@@ -182,11 +260,3 @@ def generateIntervalDataFileFromRawDataAndDateRange(rawData,startDateString,endD
     elif env["env"]=="gcp":
         intervalDataBlob = storage.Blob(intervalDataFilename, bucket)
         intervalDataBlob.upload_from_string(json.dumps(intervalMetrics),content_type='text/json')
-
-def generateFullIntervalDataFileFromRawDataAllDates(rawData):
-    dateStrings = []
-    for dateString in rawData[conf["alphavantageJsonTimeType"]]:
-        dateStrings.append(dateString)
-        dateStrings.sort()
-
-    generateIntervalDataFileFromRawDataAndDateRange(rawData,dateStrings[0],dateStrings[len(dateStrings)-1])
