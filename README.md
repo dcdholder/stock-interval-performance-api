@@ -1,21 +1,21 @@
 # Stock Interval Performance API
 
-EARLY DEVELOPMENT
+Over a given range of dates, see the time intervals within that date range in which stocks performed at their best and worst.
 
-This API will allow you to see the variance in stock performance over smaller time intervals within a chosen date interval. The idea is to give you the worst and best times (and other points in between) you could have bought a stock historically for a range of hold times. For instance, it could tell you that the best interval to have held a given stock for one month would have been October to November of 2005, while the best interval to have held that stock for two months was December to February of 2011.
+## Usage
+
+Visit `${PUBLIC_API_URL}/intervals/symbol=${STOCK_TICKER_SYMBOL}&startdate=${START_DATE}&enddate=${END_DATE}` where START_DATE and END_DATE are of the form YYYY-MM-DD, YYYY-MM or YYYY.
 
 ## Deployment
 
-1. Create a new project in GCP. 
+1. Create a new project in GCP.
 2. Add a bucket to it. Paste the bucket name into env.json.
 3. Go to Alphavantage and generate an API key. Paste it into credentials.json.
 4. Clone this repo in the shell.
 5. Run `gcloud app deploy publicApi.yaml privateApi.yaml` from the directory you created with git to deploy the two APIs.
 
-## Usage
+## Future Development
 
-Choose a date interval, maximum interval length and time resolution, then specify the performance percentiles you're looking for.
-
-## Plans
-
-Create a mechanism to create some data on-the-fly and generate other data statically.
+- Allow a public API user to specify a date "resolution".
+- Create a cron job which will refresh "static" data files on a regular basis through the private API.
+- Spin up a compute instance for each stock when generating the static data through the private API.
