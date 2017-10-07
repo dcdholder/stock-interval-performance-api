@@ -18,8 +18,8 @@ if env["env"]=='gcp':
     client = storage.Client()
     bucket = client.get_bucket(env['gcp']['bucketName'])
 
-def getIntervalDataFilename(tickerSymbol,startDateString,endDateString):
-    return 'intervals-' + tickerSymbol + '-' + startDateString + '_' + endDateString + '.json'
+def getIntervalDataFilename(tickerSymbol,startDateString,endDateString,resolution):
+    return 'intervals-' + tickerSymbol + '-' + startDateString + '_' + endDateString + '-' + resolution + '.json'
 
 def getRawDataFilename(tickerSymbol):
     return 'raw-' + tickerSymbol + '-' + conf["alphavantageCompactOrFull"] + '-' + conf["alphavantageTimeFunction"] + '.json'
@@ -73,7 +73,7 @@ def resolveToAvailableDateRange(rawData,startDateString,endDateString):
     else:
         return [earliestDateStringAtOrAfterStartDate,latestDateStringBeforeOrAtEndDate]
 
-def getIntervalDataFromDateRange(tickerSymbol,startDateString,endDateString):
+def getIntervalDataFromDateRange(tickerSymbol,startDateString,endDateString,resolution):
     rawData = rawDataFromTickerSymbol(tickerSymbol)
 
     [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(rawData,startDateString,endDateString)
@@ -83,21 +83,25 @@ def getIntervalDataFromDateRange(tickerSymbol,startDateString,endDateString):
 
     dateRangeInDays = (datetime.strptime(resolvedEndDateString, dateFormat)-datetime.strptime(resolvedStartDateString, dateFormat)).days
 
-    if dateRangeInDays<int(conf['maxDynamicGenerationDateRange']):
-        try:
-            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString)
-        except:
-            generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
+    dateRangeInDaysResolutionAdjusted = dateRangeInDays
+    if resolution=="weekly":
+        dateRangeInDaysResolutionAdjusted = dateRangeInDays // 7
 
-            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString)
+    if dateRangeInDaysResolutionAdjusted<int(conf['maxDynamicGenerationDateRange']):
+        try:
+            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString,resolution)
+        except:
+            generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString,resolution)
+
+            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString,resolution)
     else:
         try:
-            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString)
+            return getExistingIntervalData(tickerSymbol,resolvedStartDateString,resolvedEndDateString,resolution)
         except:
-            raise ValueError("Could not find statically-generated interval data for the specified time range.")
+            raise ValueError("Could not find statically-generated interval data for the specified time range/resolution.")
 
-def getExistingIntervalData(tickerSymbol,startDateString,endDateString):
-    intervalDataFilename = getIntervalDataFilename(tickerSymbol,startDateString,endDateString)
+def getExistingIntervalData(tickerSymbol,startDateString,endDateString,resolution):
+    intervalDataFilename = getIntervalDataFilename(tickerSymbol,startDateString,endDateString,resolution)
 
     if env["env"]=='local':
         with open(intervalDataFilename) as intervalDataFile:
@@ -147,7 +151,7 @@ def refreshIntervalData():
     for tickerSymbol in tickerSymbols:
         rawData = rawDataFromTickerSymbol(tickerSymbol)
 
-        generateIntervalDataFileFromRawDataMonthlyGranularity(rawData)
+        generateIntervalDataFileFromRawDataYearlyGranularity(rawData,'weekly')
 
 def getAllYearsFromRawData(rawData):
     years = set()
@@ -157,7 +161,7 @@ def getAllYearsFromRawData(rawData):
 
     return years
 
-def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData):
+def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData,resolution):
     months = []
     for month in range(1,12+1):
         if month<10:
@@ -181,21 +185,21 @@ def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData):
                         #try/except is necessary because some end dates will be generated which are prior to the earliest dates in the raw data
                         try:
                             [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(rawData,startDateString,endDateString)
-                            generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
+                            generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString,resolution)
                         except:
                             pass
 
-def generateIntervalDataFileFromRawDataYearlyGranularity(rawData):
+def generateIntervalDataFileFromRawDataYearlyGranularity(rawData,resolution):
     years = getAllYearsFromRawData(rawData)
 
     for startYear in years:
         for endYear in years:
             if endYear>=startYear:
                 [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(rawData,startYear,endYear)
-                generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString)
+                generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString,resolution)
 
-def generateIntervalDataFileFromRawDataAndDateRange(rawData,startDateString,endDateString):
-    intervalDataFilename = getIntervalDataFilename(rawData["Meta Data"]["2. Symbol"],startDateString,endDateString)
+def generateIntervalDataFileFromRawDataAndDateRange(rawData,startDateString,endDateString,resolution):
+    intervalDataFilename = getIntervalDataFilename(rawData["Meta Data"]["2. Symbol"],startDateString,endDateString,resolution)
 
     #digest the Alphavantage JSON format into an array of date/price hashes
     dateFormat = "%Y-%m-%d"
@@ -211,6 +215,21 @@ def generateIntervalDataFileFromRawDataAndDateRange(rawData,startDateString,endD
             dateAndPrice["price"]              = priceDict[conf["alphavantageJsonPriceType"]]
 
             datesAndPrices.append(dateAndPrice)
+
+    #reduce the resolution of the price data, if required
+    #all lengths of intervals generated using this data should be integer multiples of the resolution
+    if resolution=="weekly":
+        sortedDatesAndPrices = sorted(datesAndPrices, key=lambda k: k['daysSinceFixedDate'])
+
+        reducedDatesAndPrices = []
+        previousDate = sortedDatesAndPrices[0]['daysSinceFixedDate']
+        for i in range(len(sortedDatesAndPrices)):
+            #WARNING: may generate sparse data in some cases to enforce intervals of an integer multiple week length
+            if (sortedDatesAndPrices[i]['daysSinceFixedDate']-previousDate)%7==0:
+                reducedDatesAndPrices.append(sortedDatesAndPrices[i])
+                previousDate = sortedDatesAndPrices[i]['daysSinceFixedDate']
+
+        datesAndPrices = reducedDatesAndPrices
 
     #iterate over all possible pairs of the above date/price dicts to generate time interval dicts
     intervalDatePriceDicts = []

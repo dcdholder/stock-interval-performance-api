@@ -10,9 +10,10 @@ api = Api(app)
 
 requestParser = reqparse.RequestParser()
 
-requestParser.add_argument('symbol',    dest='symbol',    type=str, location='args', required=True, help='A ticker symbol is required.')
-requestParser.add_argument('startdate', dest='startdate', type=str, location='args', required=True, help='A start date is required.')
-requestParser.add_argument('enddate',   dest='enddate',   type=str, location='args', required=True, help='An end date is required.')
+requestParser.add_argument('symbol',     dest='symbol',     type=str, location='args', required=True, help='A ticker symbol is required.')
+requestParser.add_argument('startdate',  dest='startdate',  type=str, location='args', required=True, help='A start date is required.')
+requestParser.add_argument('enddate',    dest='enddate',    type=str, location='args', required=True, help='An end date is required.')
+requestParser.add_argument('resolution', dest='resolution', type=str, location='args', required=False)
 
 class StockIntervalPublicResource(Resource):
     def get(self):
@@ -25,8 +26,12 @@ class StockIntervalPublicResource(Resource):
             tickerSymbols = json.load(data_file)
 
         if args.symbol in tickerSymbols:
+            resolution="daily"
+            if args.resolution!=None:
+                resolution=args.resolution
+
             try:
-                return financialDataIntervals.getIntervalDataFromDateRange(args.symbol,args.startdate,args.enddate), 200
+                return financialDataIntervals.getIntervalDataFromDateRange(args.symbol,args.startdate,args.enddate,resolution), 200
             except Exception as e:
                 return str(e), 404
         else:
