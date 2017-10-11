@@ -2,3 +2,4 @@ gunicorn
 flask-restful
 google-cloud
 requests
+boto3

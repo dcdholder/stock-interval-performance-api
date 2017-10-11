@@ -1,3 +1,4 @@
+import boto3
 from google.cloud import storage, exceptions
 
 import json
@@ -17,6 +18,10 @@ with open("conf.json") as configurationFile:
 if env["env"]=='gcp':
     client = storage.Client()
     bucket = client.get_bucket(env['gcp']['bucketName'])
+elif env["env"]=='aws':
+    client = boto3.client('s3')
+    s3 = boto3.resource('s3')
+    bucket = s3.Bucket(env['aws']['bucketName'])
 
 def getIntervalDataFilename(tickerSymbol,startDateString,endDateString,resolution):
     return 'intervals-' + tickerSymbol + '-' + startDateString + '_' + endDateString + '-' + resolution + '.json'
@@ -110,6 +115,10 @@ def getExistingIntervalData(tickerSymbol,startDateString,endDateString,resolutio
         intervalDataBlob = storage.Blob(intervalDataFilename, bucket)
 
         return json.loads(intervalDataBlob.download_as_string().decode("utf-8"))
+    elif env["env"]=='aws':
+        intervalDataObject = client.get_object(Bucket=env['aws']['bucketName'], Key=intervalDataFilename)
+
+        return json.loads(intervalDataObject['Body'].read().decode("utf-8"))
 
 def rawDataFromTickerSymbol(tickerSymbol):
     rawDataFilename = getRawDataFilename(tickerSymbol)
@@ -123,8 +132,12 @@ def rawDataFromTickerSymbol(tickerSymbol):
             rawDataBlob = storage.Blob(rawDataFilename, bucket)
 
             rawData = json.loads(rawDataBlob.download_as_string().decode("utf-8"))
+        elif env["env"]=='aws':
+            rawDataObject = client.get_object(Bucket=env['aws']['bucketName'], Key=rawDataFilename)
 
-    except (IOError, exceptions.NotFound):
+            return json.loads(rawDataObject['Body'].read().decode("utf-8"))
+
+    except:
         with open("credentials.json") as credentialsFile:
             credentials = json.load(credentialsFile)
 
@@ -141,6 +154,8 @@ def rawDataFromTickerSymbol(tickerSymbol):
         elif env["env"]=='gcp':
             rawDataBlob = storage.Blob(rawDataFilename, bucket)
             rawDataBlob.upload_from_string(json.dumps(rawData),content_type='text/json')
+        elif env["env"]=='aws':
+            bucket.put_object(Body=json.dumps(rawData), Key=rawDataFilename)
 
     return rawData
 
@@ -292,3 +307,5 @@ def generateIntervalDataFileFromRawDataAndDateRange(rawData,startDateString,endD
     elif env["env"]=="gcp":
         intervalDataBlob = storage.Blob(intervalDataFilename, bucket)
         intervalDataBlob.upload_from_string(json.dumps(intervalMetrics),content_type='text/json')
+    elif env["env"]=="aws":
+        bucket.put_object(Body=json.dumps(intervalMetrics), Key=intervalDataFilename)
