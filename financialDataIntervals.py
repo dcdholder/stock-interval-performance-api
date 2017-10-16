@@ -159,14 +159,17 @@ def rawDataFromTickerSymbol(tickerSymbol):
 
     return rawData
 
-def refreshIntervalData():
-    with open("tickerSymbols.json") as tickerSymbolsFile:
-        tickerSymbols = json.load(tickerSymbolsFile)
+def refreshIntervalData(symbol="all",numFragments=1,fragmentIndex=0):
+    if symbol=="all":
+        with open("tickerSymbols.json") as tickerSymbolsFile:
+            tickerSymbols = json.load(tickerSymbolsFile)
+    else:
+        tickerSymbols = [symbol]
 
     for tickerSymbol in tickerSymbols:
         rawData = rawDataFromTickerSymbol(tickerSymbol)
 
-        generateIntervalDataFileFromRawDataYearlyGranularity(rawData,'weekly')
+        generateIntervalDataFileFromRawDataYearlyGranularity(rawData,'weekly',numFragments=numFragments,fragmentIndex=fragmentIndex)
 
 def getAllYearsFromRawData(rawData):
     years = set()
@@ -176,7 +179,7 @@ def getAllYearsFromRawData(rawData):
 
     return years
 
-def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData,resolution):
+def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData,resolution,numFragments=1,fragmentIndex=0):
     months = []
     for month in range(1,12+1):
         if month<10:
@@ -204,14 +207,50 @@ def generateIntervalDataFileFromRawDataMonthlyGranularity(rawData,resolution):
                         except:
                             pass
 
-def generateIntervalDataFileFromRawDataYearlyGranularity(rawData,resolution):
+def generateIntervalDataFileFromRawDataYearlyGranularity(rawData,resolution,numFragments=1,fragmentIndex=0):
     years = getAllYearsFromRawData(rawData)
 
+    resolvedDateRanges = []
     for startYear in years:
         for endYear in years:
             if endYear>=startYear:
-                [resolvedStartDateString,resolvedEndDateString] = resolveToAvailableDateRange(rawData,startYear,endYear)
-                generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString,resolution)
+                resolvedDateRanges.append(resolveToAvailableDateRange(rawData,startYear,endYear))
+
+    resolvedDateRangesBelongingToThisFragment = assignToFragment(resolvedDateRanges,numFragments,fragmentIndex)
+
+    for dateRange in resolvedDateRangesBelongingToThisFragment:
+        resolvedStartDateString = dateRange[0]
+        resolvedEndDateString   = dateRange[1]
+
+        generateIntervalDataFileFromRawDataAndDateRange(rawData,resolvedStartDateString,resolvedEndDateString,resolution)
+
+def assignToFragment(startDateEndDatePairs,numFragments,fragmentIndex):
+    dateFormat = "%Y-%m-%d"
+
+    #first we want the intervals to be ordered, so that date ranges of similar length are spread over the fragments equally
+    timeDeltaDicts = []
+    for startDateEndDatePair in startDateEndDatePairs:
+        timeDelta = (datetime.strptime(startDateEndDatePair[1], dateFormat)-datetime.strptime(startDateEndDatePair[0], dateFormat)).days
+
+        timeDeltaDicts.append({"startDateEndDateStringPair": startDateEndDatePair,"timeDelta": timeDelta})
+
+    timeDeltaDictsByTimeDelta = sorted(timeDeltaDicts, key=lambda k: k["timeDelta"])
+
+    startDateEndDatePairsByTimeDelta = []
+    for timeDeltaDict in timeDeltaDictsByTimeDelta:
+        startDateEndDatePairsByTimeDelta.append(timeDeltaDict["startDateEndDateStringPair"])
+
+    #now we can evenly spread the date ranges between fragments
+    datePairsByFragment = {}
+    for i in range(len(startDateEndDatePairsByTimeDelta)):
+        if i%numFragments not in datePairsByFragment.keys():
+            datePairsByFragment[i%numFragments] = []
+
+        startDateEndDatePair = startDateEndDatePairsByTimeDelta[i]
+        datePairsByFragment[i%numFragments].append(startDateEndDatePair)
+
+    #now return only the fragment relevant to the target fragment
+    return datePairsByFragment[fragmentIndex]
 
 def generateIntervalDataFileFromRawDataAndDateRange(rawData,startDateString,endDateString,resolution):
     intervalDataFilename = getIntervalDataFilename(rawData["Meta Data"]["2. Symbol"],startDateString,endDateString,resolution)

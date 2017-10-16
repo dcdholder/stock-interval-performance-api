@@ -1,7 +1,7 @@
 import financialDataIntervals
 
 from flask import Flask
-from flask_restful import Resource, Api, marshal_with, reqparse
+from flask_restful import Resource, Api, reqparse
 
 import json
 
