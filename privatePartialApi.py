@@ -19,8 +19,6 @@ requestParser.add_argument('fragment', dest='fragment', type=str, location='args
 
 class StockIntervalPrivatePartialResource(Resource):
     def get(self):
-        print(datetime.datetime.now())
-
         with open("env.json") as environmentFile:
             env = json.load(environmentFile)
 
@@ -29,12 +27,14 @@ class StockIntervalPrivatePartialResource(Resource):
 
         args = requestParser.parse_args()
 
-        refreshThread = Thread(target=financialDataIntervals.refreshIntervalData, kwargs={'symbol': args.symbol,'numFragments': int(env["numFragments"]),'fragmentIndex': int(args.fragment)})
-        refreshThread.start()
+        try:
+            financialDataIntervals.refreshIntervalData(symbol=args.symbol,numFragments=int(env["numFragments"]),fragmentIndex=int(args.fragment))
+        except:
+            return 'Partial request failed (symbol: ' + args.symbol + ', fragment: ' + args.fragment + ').', 404
 
         return 'Performed a partial refresh on stock data (symbol: ' + args.symbol + ', fragment: ' + args.fragment + ').', 204
 
 api.add_resource(StockIntervalPrivatePartialResource, '/refresh/partial')
 
 if __name__ == '__main__':
-    app.run(debug=True,threaded=True)
+    app.run(debug=True,threaded=True,port=5001)

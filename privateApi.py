@@ -1,6 +1,10 @@
+from datetime import datetime
+
 import financialDataIntervals
 
 from threading import Thread
+from queue import Queue
+
 import requests
 
 from flask import Flask
@@ -19,15 +23,45 @@ class StockIntervalPrivateResource(Resource):
         with open("tickerSymbols.json") as tickerSymbolsFile:
             tickerSymbols = json.load(tickerSymbolsFile)
 
-        for tickerSymbol in tickerSymbols:
-            for i in range(int(env["numFragments"])):
-                finalRequestUri = env["partialRefreshRequestUri"] + '/refresh/partial?symbol=' + tickerSymbol + '&fragment=' + str(i)
-                refreshRequest = requests.get(finalRequestUri)
+        partialRefreshRequestResponse = self.partialRefreshRequestLauncher(tickerSymbols,int(env["numFragments"]),env["partialRefreshRequestUri"])
 
-                if refreshRequest.status_code>=400:
-                    return 'At least one partial refresh failed.', 404
+        return partialRefreshRequestResponse
+
+    def partialRefreshRequestLauncher(self,tickerSymbols,numFragments,partialRefreshRequestUri):
+        finalRequestUris = Queue()
+        responseQueue    = Queue()
+
+        for tickerSymbol in tickerSymbols:
+            for i in range(numFragments):
+                finalRequestUris.put(partialRefreshRequestUri + '/refresh/partial?symbol=' + tickerSymbol + '&fragment=' + str(i))
+
+        #all requests are made concurrently, not in batches -- could set a ceiling on the number of concurrent requests in the future
+        partialRequestThreads = []
+        for i in range(finalRequestUris.qsize()):
+            partialRequestThread = Thread(target=self.partialRefreshRequestHandler, args=(finalRequestUris,responseQueue))
+            partialRequestThread.start()
+
+            partialRequestThreads.append(partialRequestThread)
+
+        finalRequestUris.join()
+
+        for partialRequestThread in partialRequestThreads:
+            partialRequestThread.join()
+
+        while not responseQueue.empty():
+            response = responseQueue.get()
+
+            if response[0]>=400:
+                return 'At least one partial refresh failed.', 404
 
         return 'Performed a full refresh on all stock data.', 204
+
+    def partialRefreshRequestHandler(self,partialRefreshRequestUris,responseQueue):
+        partialRefreshRequest = requests.get(partialRefreshRequestUris.get())
+
+        responseQueue.put([partialRefreshRequest.status_code,partialRefreshRequest.text])
+
+        partialRefreshRequestUris.task_done()
 
 api.add_resource(StockIntervalPrivateResource, '/refresh/full')
 
